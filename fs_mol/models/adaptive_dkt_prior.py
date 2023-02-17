@@ -34,8 +34,7 @@ class ADKTPriorModelConfig:
     ] = "gnn+ecfp+fc"
     #distance_metric: Literal["mahalanobis", "euclidean"] = "mahalanobis"
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#print(device)
+
 class ADKTPriorModel(nn.Module):
     def __init__(self, config: ADKTPriorModelConfig):
         super().__init__()
@@ -91,10 +90,6 @@ class ADKTPriorModel(nn.Module):
                         raise ValueError("Unexpected parameter with name {}.".format(name))
 
         self.__create_tail_GP(kernel_type=self.config.gp_kernel)
-
-        for param in self.parameters():
-            param = param.to(device)
-            print(param.get_device())
         
         if self.config.gp_kernel == "cossim":
             self.normalizing_features = True
@@ -155,12 +150,12 @@ class ADKTPriorModel(nn.Module):
             loc = np.log(0.1) + scale**2 # make sure that mode=0.1
             noise_prior = gpytorch.priors.LogNormalPrior(loc=loc, scale=scale)
         
-        self.gp_likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_prior=noise_prior).to(device)
+        self.gp_likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_prior=noise_prior).to(self.device)
         self.gp_model = ExactGPLayer(
             train_x=dummy_train_x, train_y=dummy_train_y, likelihood=self.gp_likelihood, 
             kernel=kernel_type, ard_num_dims=ard_num_dims, use_numeric_labels=self.config.use_numeric_labels
-        ).to(device)
-        self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.gp_likelihood, self.gp_model).to(device)
+        ).to(self.device)
+        self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.gp_likelihood, self.gp_model).to(self.device)
 
     def compute_median_lengthscale_init(self, gp_input):
         dist_squared = torch.cdist(gp_input, gp_input) ** 2
@@ -174,15 +169,16 @@ class ADKTPriorModel(nn.Module):
 
         for name, param in self.named_parameters():
             if name.startswith("fc") and not name.endswith("_nn"):
-                param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn"))
+                param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
 
     def log_prob(self, loc, logscale, value):
         # compute the variance
+        print(loc.device, logscale.device, value.device)
         var = (torch.exp(logscale) ** 2)
         return -((value - loc) ** 2) / (2 * var) - logscale - math.log(math.sqrt(2 * math.pi))
 
     def log_prior(self):
-        logprob_prior = torch.tensor(0.0)
+        logprob_prior = torch.tensor(0.0).to(self.device)
         # for name, param in self.named_parameters():
         #     if not name.endswith("_nn") and not name.startswith("gp_"):
         #         logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
@@ -193,10 +189,9 @@ class ADKTPriorModel(nn.Module):
         
         return logprob_prior
 
-    # @property
-    # def device(self) -> torch.device:
-    #     print('----', next(self.parameters()).to(device))
-    #     return next(self.parameters()).to(device)
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
 
     def forward(self, input_batch: DKTBatch, train_loss: bool, predictive_val_loss: bool=False, is_functional_call: bool=False):
         support_features: List[torch.Tensor] = []
