@@ -34,7 +34,6 @@ class ADKTPriorModelConfig:
     ] = "gnn+ecfp+fc"
     #distance_metric: Literal["mahalanobis", "euclidean"] = "mahalanobis"
 
-
 class ADKTPriorModel(nn.Module):
     def __init__(self, config: ADKTPriorModelConfig):
         super().__init__()
@@ -173,7 +172,6 @@ class ADKTPriorModel(nn.Module):
 
     def log_prob(self, loc, logscale, value):
         # compute the variance
-        print(loc.device, logscale.device, value.device)
         var = (torch.exp(logscale) ** 2)
         return -((value - loc) ** 2) / (2 * var) - logscale - math.log(math.sqrt(2 * math.pi))
 
