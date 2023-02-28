@@ -66,16 +66,13 @@ class ADKTPriorModel(nn.Module):
             )
 
             # for name, param in self.named_parameters():
-            #     print(name)
-                # if not name.endswith("_nn") and not name.startswith("gp_"):
-                #     if "weight" in name:
-                #         setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.xavier_uniform_(torch.Tensor(*tuple(param.shape)))))
-                #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
-                #     elif "bias" in name:
-                #         setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
-                #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
-                #     else:
-                #         raise ValueError("Unexpected parameter with name {}.".format(name))
+            #     # if not name.endswith("_nn") and not name.startswith("gp_"):
+            #     if "weight" in name and not "mp_norm_layer" in name:
+            #         setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.normal_(torch.Tensor(*tuple(param.shape)), mean=0.0, std=1.0)))
+            #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
+            #     elif "bias" in name and not "mp_norm_layer" in name:
+            #         setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
+            #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
 
             for name, param in self.named_parameters():
                 if name.startswith("fc"):
@@ -98,7 +95,14 @@ class ADKTPriorModel(nn.Module):
     def feature_extractor_params(self):
         fe_params = []
         for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_"):
+            if not name.endswith("_nn") and not name.startswith("gp_") and name.startswith("fc"):
+                fe_params.append(param)
+        return fe_params
+
+    def gnn_params(self):
+        fe_params = []
+        for name, param in self.named_parameters():
+            if not name.endswith("_nn") and not name.startswith("gp_") and not name.startswith("fc"):
                 fe_params.append(param)
         return fe_params
 
@@ -115,6 +119,12 @@ class ADKTPriorModel(nn.Module):
             if name.endswith("_nn"):
                 prior_params.append(param)
         return prior_params
+
+    def gnn_prior_params(self):
+        fe_params = []
+        
+        fe_params = self.gnn_params() + self.prior_params()
+        return fe_params
 
     def reinit_gp_params(self, gp_input, use_lengthscale_prior=False):
 
@@ -150,6 +160,7 @@ class ADKTPriorModel(nn.Module):
             noise_prior = gpytorch.priors.LogNormalPrior(loc=loc, scale=scale)
         
         self.gp_likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_prior=noise_prior).to(self.device)
+        #self.gp_likelihood = gpytorch.likelihoods.GaussianLikelihood().to(self.device)
         self.gp_model = ExactGPLayer(
             train_x=dummy_train_x, train_y=dummy_train_y, likelihood=self.gp_likelihood, 
             kernel=kernel_type, ard_num_dims=ard_num_dims, use_numeric_labels=self.config.use_numeric_labels
@@ -163,9 +174,9 @@ class ADKTPriorModel(nn.Module):
 
     def reinit_fc_params(self):
         # for name, param in self.named_parameters():
-        #     if not name.endswith("_nn") and not name.startswith("gp_"):
-        #         param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn"))
-
+        #     if not name.endswith("_nn") and not name.startswith("gp_") and not name.endswith("alpha") and not "mp_norm_layer" in name:
+        #         param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
+        
         for name, param in self.named_parameters():
             if name.startswith("fc") and not name.endswith("_nn"):
                 param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
@@ -178,13 +189,14 @@ class ADKTPriorModel(nn.Module):
     def log_prior(self):
         logprob_prior = torch.tensor(0.0).to(self.device)
         # for name, param in self.named_parameters():
-        #     if not name.endswith("_nn") and not name.startswith("gp_"):
+        #     if not name.endswith("_nn") and not name.startswith("gp_") and not name.endswith("alpha") and not "mp_norm_layer" in name:
         #         logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
 
         for name, param in self.named_parameters():
             if name.startswith("fc") and not name.endswith("_nn"):
                 logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
-        
+        #         print(logprob_prior)
+        #breakpoint()
         return logprob_prior
 
     @property
