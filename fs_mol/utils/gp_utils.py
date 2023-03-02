@@ -11,7 +11,7 @@ class ExactGPLayer(gpytorch.models.ExactGP):
         covar_module.raw_outputscale
         covar_module.base_kernel.raw_lengthscale
     '''
-    def __init__(self, train_x, train_y, likelihood, kernel, ard_num_dims=None, use_numeric_labels=False):
+    def __init__(self, train_x, train_y, likelihood, kernel, ard_num_dims=None, use_numeric_labels=False, use_lengthscale_prior=True):
         #Set the likelihood noise and enable/disable learning
         likelihood.noise_covar.raw_noise.requires_grad = True
         likelihood.noise_covar.noise = 0.01 if use_numeric_labels else 0.1
@@ -41,6 +41,17 @@ class ExactGPLayer(gpytorch.models.ExactGP):
             self.covar_module.base_kernel.raw_variance.requires_grad = False
         else:
             raise ValueError("[ERROR] the kernel '" + str(kernel) + "' is not supported!")
+        
+        if kernel == 'matern' or kernel == 'rbf' or kernel == 'RBF':
+            median_lengthscale_init = torch.tensor(1.0)
+            if use_lengthscale_prior:
+                scale = 0.25
+                loc = torch.log(median_lengthscale_init).item() + scale**2 # make sure that mode=median_lengthscale_init
+                lengthscale_prior = gpytorch.priors.LogNormalPrior(loc=loc, scale=scale)
+                self.covar_module.base_kernel.register_prior(
+                    "lengthscale_prior", lengthscale_prior, lambda m: m.lengthscale, lambda m, v: m._set_lengthscale(v)
+                )
+            self.covar_module.base_kernel.lengthscale = torch.ones_like(self.covar_module.base_kernel.lengthscale) * median_lengthscale_init
 
 
     def forward(self, x):
