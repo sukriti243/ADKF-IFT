@@ -75,8 +75,8 @@ class ADKTPriorModel(nn.Module):
             #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
 
             for name, param in self.named_parameters():
-                if not name.startswith("gp") and not name.endswith("_nn"):
-                    print(name, param.shape)
+                if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
+                    #print(name, param.shape)
                     if name.endswith("weight"):
                         if "norm_layer" in name:
                             setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.ones(param.shape)))
@@ -92,7 +92,7 @@ class ADKTPriorModel(nn.Module):
                         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
                     else:
                         raise ValueError("Unexpected parameter with name {}.".format(name))
-                    print("Added prior for", name)
+                    #print("Added prior for", name)
 
         self.__create_tail_GP(kernel_type=self.config.gp_kernel)
         
@@ -105,7 +105,7 @@ class ADKTPriorModel(nn.Module):
         # includes FC params, GNN params
         adapted_params = []
         for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_"):
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
                 adapted_params.append(param)
         return adapted_params
 
@@ -193,7 +193,7 @@ class ADKTPriorModel(nn.Module):
         #         param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
         
         for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_"):
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
                 param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
 
     def log_prob(self, loc, logscale, value):
@@ -208,7 +208,7 @@ class ADKTPriorModel(nn.Module):
         #         logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
 
         for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_"):
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
                 logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
         #         print(logprob_prior)
         #breakpoint()
