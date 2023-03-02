@@ -139,11 +139,13 @@ def evaluate_adkt_model(
             task_sample_to_dkt_task_sample(task_sample, batcher, model.config.use_numeric_labels), device=model.device
         )
 
-        model.reinit_fc_params()
+        model.reinit_adapted_params()
+
         with higher.innerloop_ctx(model, model.inner_optimizer, track_higher_grads=False) as (fmodel, diffopt): 
 
-            for step in range(model.config.num_inner_iters):                    
-                support_loss = fmodel(dkt_task_sample.batches, train_loss=True, is_functional_call=True)
+            for step_i in range(model.config.num_inner_iters):
+                reinit_gp_params = True if step_i == 0 else False                   
+                support_loss = fmodel(dkt_task_sample.batches, train_loss=True, is_functional_call=True, reinit_gp_params=reinit_gp_params)
                 diffopt.step(support_loss)
         
             result_metrics = run_on_batches(
@@ -224,10 +226,10 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
     def __init__(self, config: ADKTPriorModelTrainerConfig):
         super().__init__(config)
         self.config = config
-        self.inner_optimizer = torch.optim.Adam([{'params': self.feature_extractor_params(), 'lr': config.learning_rate},
+        self.reinit_gp_params(None, self.config.use_lengthscale_prior)
+        self.inner_optimizer = torch.optim.Adam([{'params': self.adapted_params_expect_gp(), 'lr': config.learning_rate},
                                                  {'params': self.gp_params(), 'lr': config.learning_rate*10}])
-        self.outer_optimizer = torch.optim.Adam([{'params': self.prior_params(), 'lr': config.learning_rate},
-                                                 {'params': self.gnn_params(), 'lr': config.learning_rate}])
+        self.outer_optimizer = torch.optim.Adam([{'params': self.meta_learned_params(), 'lr': config.learning_rate}])
         self.lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
 
     def get_model_state(self) -> Dict[str, Any]:
@@ -363,7 +365,7 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
 
         for step in range(1, self.config.num_train_steps + 1):
 
-            self.reinit_fc_params()
+            #self.reinit_gp_params()
             grad_list = []
             task_batch_losses: List[float] = []
             #task_batch_metrics: List[BinaryEvalMetrics] = []
@@ -379,19 +381,22 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
 
                 for batch_features, this_batch_labels, this_batch_numeric_labels in zip(batches, batch_labels, batch_numeric_labels):
 
+                    self.reinit_adapted_params()
+
                     with higher.innerloop_ctx(self, self.inner_optimizer, track_higher_grads=False) as (fmodel, diffopt):
                         
-                        for step in range(self.config.num_inner_iters):
-                            support_loss = fmodel(batch_features, train_loss=True, is_functional_call=True)
+                        for step_i in range(self.config.num_inner_iters):
+                            reinit_gp_params = True if step_i == 0 else False
+                            support_loss = fmodel(batch_features, train_loss=True, is_functional_call=True, reinit_gp_params=reinit_gp_params)
                             diffopt.step(support_loss)
                         #print('support_1', support_loss)
                         _ = run_on_batches(
-                        fmodel,
-                        batches=batch_features,
-                        batch_labels=this_batch_labels,
-                        batch_numeric_labels=this_batch_numeric_labels,
-                        train=True,
-                        #tasks_per_batch=self.config.tasks_per_batch,
+                            fmodel,
+                            batches=batch_features,
+                            batch_labels=this_batch_labels,
+                            batch_numeric_labels=this_batch_numeric_labels,
+                            train=True,
+                            #tasks_per_batch=self.config.tasks_per_batch,
                         )
                         support_loss = fmodel(batch_features, train_loss=True, is_functional_call=True)
                         #print('support', support_loss)
@@ -423,8 +428,9 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
                         #     if name.endswith("_nn"):
                         #         print('prior params', name)
 
-                        params = fmodel.feature_extractor_params() 
-                        hparams = fmodel.gnn_prior_params() 
+                        params = fmodel.adapted_params_expect_gp()
+                        #hparams = fmodel.gnn_prior_params()
+                        hparams = fmodel.meta_learned_params() 
                         #params = list(islice(fmodel.parameters(time=-1), 730, 731 ,1))+list(islice(fmodel.parameters(time=-1), 732, 766 ,1))+list(islice(fmodel.parameters(time=-1), 767, 801 ,1))+list(islice(fmodel.parameters(time=-1), 802, 836 ,1))+list(islice(fmodel.parameters(time=-1), 837, 871 ,1))+list(islice(fmodel.parameters(time=-1), 872, 906 ,1))+list(islice(fmodel.parameters(time=-1), 907, 941 ,1))+list(islice(fmodel.parameters(time=-1), 942, 976 ,1))+list(islice(fmodel.parameters(time=-1), 977, 1011 ,1))+list(islice(fmodel.parameters(time=-1), 1012, 1046 ,1))+list(islice(fmodel.parameters(time=-1), 1047, 1105 ,1))
                         #hparams = list(islice(fmodel.parameters(), 0, 729, 1))
                         
