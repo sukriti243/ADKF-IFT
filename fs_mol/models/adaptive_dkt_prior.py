@@ -75,15 +75,24 @@ class ADKTPriorModel(nn.Module):
             #         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
 
             for name, param in self.named_parameters():
-                if name.startswith("fc"):
-                    if "weight" in name:
-                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.xavier_uniform_(torch.Tensor(*tuple(param.shape)))))
-                        setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
-                    elif "bias" in name:
+                if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
+                    #print(name, param.shape)
+                    if name.endswith("weight"):
+                        if "norm_layer" in name:
+                            setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.ones(param.shape)))
+                            setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
+                        else:
+                            setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.xavier_uniform_(torch.Tensor(*tuple(param.shape)))))
+                            setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
+                    elif name.endswith("bias"):
                         setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
+                        setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
+                    elif name.endswith("alpha"):
+                        setattr(self, name.replace(".", "_")+"_mu_nn", nn.Parameter(torch.full(size=(1,), fill_value=1e-7)))
                         setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.1))))
                     else:
                         raise ValueError("Unexpected parameter with name {}.".format(name))
+                    #print("Added prior for", name)
 
         self.__create_tail_GP(kernel_type=self.config.gp_kernel)
         
@@ -92,46 +101,52 @@ class ADKTPriorModel(nn.Module):
         else:
             self.normalizing_features = False
 
-    def feature_extractor_params(self):
-        fe_params = []
+    def adapted_params_expect_gp(self):
+        # includes FC params, GNN params
+        adapted_params = []
         for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_") and name.startswith("fc"):
-                fe_params.append(param)
-        return fe_params
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
+                adapted_params.append(param)
+        return adapted_params
 
-    def gnn_params(self):
-        fe_params = []
-        for name, param in self.named_parameters():
-            if not name.endswith("_nn") and not name.startswith("gp_") and not name.startswith("fc"):
-                fe_params.append(param)
-        return fe_params
+    # def gnn_params(self):
+    #     fe_params = []
+    #     for name, param in self.named_parameters():
+    #         if not name.endswith("_nn") and not name.startswith("gp_") and not name.startswith("fc"):
+    #             fe_params.append(param)
+    #     return fe_params
 
     def gp_params(self):
+        # GP params
         gp_params = []
         for name, param in self.named_parameters():
             if name.startswith("gp_"):
                 gp_params.append(param)
         return gp_params
 
-    def prior_params(self):
-        prior_params = []
+    def meta_learned_params(self):
+        # includes FC_prior and GNN_prior params
+        meta_learned_params = []
         for name, param in self.named_parameters():
             if name.endswith("_nn"):
-                prior_params.append(param)
-        return prior_params
+                meta_learned_params.append(param)
+        return meta_learned_params
 
-    def gnn_prior_params(self):
-        fe_params = []
+    # def gnn_prior_params(self):
+    #     fe_params = []
         
-        fe_params = self.gnn_params() + self.prior_params()
-        return fe_params
+    #     fe_params = self.gnn_params() + self.prior_params()
+    #     return fe_params
 
     def reinit_gp_params(self, gp_input, use_lengthscale_prior=False):
 
         self.__create_tail_GP(kernel_type=self.config.gp_kernel)
 
         if self.config.gp_kernel == 'matern' or self.config.gp_kernel == 'rbf' or self.config.gp_kernel == 'RBF':
-            median_lengthscale_init = self.compute_median_lengthscale_init(gp_input)
+            if gp_input is None:
+                median_lengthscale_init = torch.tensor(1.0).to(self.device)
+            else:
+                median_lengthscale_init = self.compute_median_lengthscale_init(gp_input)
             if use_lengthscale_prior:
                 scale = 0.25
                 loc = torch.log(median_lengthscale_init).item() + scale**2 # make sure that mode=median_lengthscale_init
@@ -172,13 +187,13 @@ class ADKTPriorModel(nn.Module):
         dist_squared = torch.triu(dist_squared, diagonal=1)
         return torch.sqrt(0.5 * torch.median(dist_squared[dist_squared>0.0]))
 
-    def reinit_fc_params(self):
+    def reinit_adapted_params(self):
         # for name, param in self.named_parameters():
         #     if not name.endswith("_nn") and not name.startswith("gp_") and not name.endswith("alpha") and not "mp_norm_layer" in name:
         #         param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
         
         for name, param in self.named_parameters():
-            if name.startswith("fc") and not name.endswith("_nn"):
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
                 param.data = getattr(self, name.replace(".", "_")+"_mu_nn") + torch.exp(getattr(self, name.replace(".", "_")+"_logsigma_nn")) * torch.randn_like(getattr(self, name.replace(".", "_")+"_logsigma_nn")).to(self.device)
 
     def log_prob(self, loc, logscale, value):
@@ -193,7 +208,7 @@ class ADKTPriorModel(nn.Module):
         #         logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
 
         for name, param in self.named_parameters():
-            if name.startswith("fc") and not name.endswith("_nn"):
+            if not name.endswith("_nn") and (name.startswith("fc") or name.startswith("graph_feature_extractor")):
                 logprob_prior -= self.log_prob(getattr(self, name.replace(".", "_")+"_mu_nn"), getattr(self, name.replace(".", "_")+"_logsigma_nn"), param).sum()
         #         print(logprob_prior)
         #breakpoint()
@@ -203,7 +218,7 @@ class ADKTPriorModel(nn.Module):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
-    def forward(self, input_batch: DKTBatch, train_loss: bool, predictive_val_loss: bool=False, is_functional_call: bool=False):
+    def forward(self, input_batch: DKTBatch, train_loss: bool, predictive_val_loss: bool=False, is_functional_call: bool=False, reinit_gp_params: bool=False):
         support_features: List[torch.Tensor] = []
         query_features: List[torch.Tensor] = []
 
@@ -240,11 +255,13 @@ class ADKTPriorModel(nn.Module):
             assert train_loss is not None
             if train_loss: # compute train loss (on the support set)
                 if is_functional_call: # return loss directly
+                    if reinit_gp_params:
+                        self.reinit_gp_params(support_features_flat.detach(), self.config.use_lengthscale_prior)
                     self.gp_model.set_train_data(inputs=support_features_flat, targets=support_labels_converted, strict=False)
                     logits = self.gp_model(support_features_flat)
                     logits = -self.mll(logits, self.gp_model.train_targets) + self.log_prior()
                 else:
-                    self.reinit_gp_params(support_features_flat.detach(), self.config.use_lengthscale_prior)
+                    #self.reinit_gp_params(support_features_flat.detach(), self.config.use_lengthscale_prior)
                     self.gp_model.set_train_data(inputs=support_features_flat.detach(), targets=support_labels_converted.detach(), strict=False)
                     logits = None
             else: # compute val loss (on the query set)
