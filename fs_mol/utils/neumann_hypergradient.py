@@ -3,7 +3,7 @@ import torch
 def hypergradient(query_loss, support_loss, params_outer, params_inner):
     
     # dL(val)/dp(inner)
-    v = torch.autograd.grad(query_loss, params_inner, retain_graph=True)
+    v = torch.autograd.grad(query_loss, params_inner, retain_graph=True, allow_unused=True)
     
     # dL(train)/dp(inner)
     dtrain_dinner = torch.autograd.grad(support_loss, params_inner, retain_graph=True, create_graph=True)

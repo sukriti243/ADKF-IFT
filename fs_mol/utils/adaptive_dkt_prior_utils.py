@@ -383,7 +383,7 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
 
                 for batch_features, this_batch_labels, this_batch_numeric_labels in zip(batches, batch_labels, batch_numeric_labels):
 
-                    with higher.innerloop_ctx(self, self.inner_optimizer, track_higher_grads=True) as (fmodel, diffopt):
+                    with higher.innerloop_ctx(self, self.inner_optimizer, track_higher_grads=False) as (fmodel, diffopt):
                         
                         for step_i in range(self.config.num_inner_iters):
                             reinit_gp_params = True if step_i == 0 else False
