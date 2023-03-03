@@ -143,8 +143,7 @@ def evaluate_adkt_model(
         with higher.innerloop_ctx(model, model.inner_optimizer, track_higher_grads=False) as (fmodel, diffopt): 
 
             for step_i in range(model.config.num_inner_iters):
-                reinit_gp_params = True if step_i == 0 else False
-                support_loss = fmodel(dkt_task_sample.batches, train_loss=True, is_functional_call=True, reinit_gp_params=reinit_gp_params)
+                support_loss = fmodel(dkt_task_sample.batches, train_loss=True, is_functional_call=True)
                 diffopt.step(support_loss)
         
             result_metrics = run_on_batches(
@@ -386,8 +385,7 @@ class ADKTPriorModelTrainer(ADKTPriorModel):
                     with higher.innerloop_ctx(self, self.inner_optimizer, track_higher_grads=False) as (fmodel, diffopt):
                         
                         for step_i in range(self.config.num_inner_iters):
-                            reinit_gp_params = True if step_i == 0 else False
-                            support_loss = fmodel(batch_features, train_loss=True, is_functional_call=True, reinit_gp_params=reinit_gp_params)
+                            support_loss = fmodel(batch_features, train_loss=True, is_functional_call=True)
                             diffopt.step(support_loss)
                         #print('support_1', support_loss)
                         _ = run_on_batches(

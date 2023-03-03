@@ -12,7 +12,7 @@ def hypergradient(query_loss, support_loss, params_outer, params_inner):
     p = approxInverseHVP(v, dtrain_dinner, params_inner)
 
     # hypergradient = g_direct + g_indirect; g_direct=0
-    g_indirect = torch.autograd.grad(dtrain_dinner, params_outer, grad_outputs=p, retain_graph=True, allow_unused=True)
+    g_indirect = torch.autograd.grad(dtrain_dinner, params_outer, grad_outputs=p, retain_graph=True)
     
     return list(-g for g in g_indirect)
 
