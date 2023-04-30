@@ -153,6 +153,11 @@ def parse_command_line():
         action="store_true",
         help="Ignore the second order term in the hypergradient. Default: False.",
     )
+    parser.add_argument(
+        "--load-prior-weights",
+        action="store_true",
+        help="Load prior weights from ADKF-IFT model. Default: False.",
+    )
     args = parser.parse_args()
     return args
 
@@ -178,6 +183,7 @@ def make_trainer_config(args: argparse.Namespace) -> ADKTPriorModelTrainerConfig
         use_lengthscale_prior=args.use_lengthscale_prior,
         use_numeric_labels=args.use_numeric_labels,
         ignore_grad_correction=args.ignore_grad_correction,
+        load_prior_weights=args.load_prior_weights,
     )
 
 

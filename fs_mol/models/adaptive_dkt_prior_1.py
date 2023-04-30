@@ -66,27 +66,48 @@ class ADKTPriorModel(nn.Module):
                 nn.Linear(2048, self.fc_out_dim),
             )
 
+        if self.config.load_prior_weights:
+            if self.config.use_numeric_labels:
+                adkf_ift_state = torch.load("./fs_mol/adkf-ift-regression.pt", map_location=self.device)["model_state_dict"]
+            else:
+                adkf_ift_state = torch.load("./fs_mol/adkf-ift-classification.pt", map_location=self.device)["model_state_dict"]
+
         for name, param in self.named_parameters():
             if name.endswith("weight"):
                 if "mp_norm_layer" in name:
                     pass
                 elif "norm_layer" in name:  # for boom_norm_layer
-                    setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.ones(param.shape)))
+                    if self.config.load_prior_weights:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(adkf_ift_state[name]))
+                    else:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.ones(param.shape)))
                     setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.01))))
                 else:
-                    setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.xavier_uniform_(torch.Tensor(*tuple(param.shape)))))
+                    if self.config.load_prior_weights:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(adkf_ift_state[name]))
+                    else:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(nn.init.xavier_uniform_(torch.Tensor(*tuple(param.shape)))))
                     setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.01))))
             elif name.endswith("bias"):
                 if "mp_norm_layer" in name:
                     pass
                 elif "norm_layer" in name:  # for boom_norm_layer
-                    setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
+                    if self.config.load_prior_weights:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(adkf_ift_state[name]))
+                    else:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
                     setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.01))))
                 else:
-                    setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
+                    if self.config.load_prior_weights:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(adkf_ift_state[name]))
+                    else:
+                        setattr(self, name.replace(".", "_")+"_mu_nn", Parameter(torch.zeros(param.shape)))
                     setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.01))))
             elif name.endswith("alpha"):
-                setattr(self, name.replace(".", "_")+"_mu_nn", nn.Parameter(torch.full(size=(1,), fill_value=1e-7)))
+                if self.config.load_prior_weights:
+                    setattr(self, name.replace(".", "_")+"_mu_nn", nn.Parameter(adkf_ift_state[name]))
+                else:
+                    setattr(self, name.replace(".", "_")+"_mu_nn", nn.Parameter(torch.full(size=(1,), fill_value=1e-7)))
                 setattr(self, name.replace(".", "_")+"_logsigma_nn", Parameter(torch.full(tuple(param.shape), math.log(0.01))))
             else:
                 raise ValueError("Unexpected parameter with name {}.".format(name))

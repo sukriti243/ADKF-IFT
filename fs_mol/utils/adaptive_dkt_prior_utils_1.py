@@ -67,6 +67,8 @@ class ADKTPriorModelTrainerConfig(ADKTPriorModelConfig):
     use_lengthscale_prior: bool = True
     use_numeric_labels: bool = False
     ignore_grad_correction: bool = False
+
+    load_prior_weights: bool = False
     
 
 def run_on_batches(
